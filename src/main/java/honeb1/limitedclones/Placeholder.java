@@ -43,7 +43,11 @@ public class Placeholder extends PlaceholderExpansion{
             return Integer.toString(plugin.getClones(player));
         }
         if(identifier.equalsIgnoreCase("clones_max")){
-            return Integer.toString(plugin.maxClones);
+            int max = plugin.getMaxClones(player);
+            if(max == -1){//無限
+                return "∞";
+            }
+            return Integer.toString(max);
         }
         return null;
     }

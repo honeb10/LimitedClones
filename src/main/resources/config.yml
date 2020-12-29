@@ -1,1 +1,16 @@
-MaxClones: 5
+#limitedclones.maxclones.Nの権限で
+#最大残機をN体に設定
+maxClonesPerms:
+- 0
+- 3
+- 5
+- 10
+
+#limitedclones.healamount.Nの権限で
+#/clones heal の回復量をN体に設定
+healAmountPerms:
+  - 1
+  - 2
+  - 5
+  - 7
+  - 10

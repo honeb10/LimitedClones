@@ -1,28 +1,18 @@
 name: LimitedClones
-version: ${project.version}
+version: 1.1
 main: honeb1.limitedclones.LimitedClones
 api-version: 1.16
-softdepend: [PlaceholderAPI]
+softdepend: [PlaceholderAPI,WorldGuard]
 
 permissions:
-  #limitedclones.*:
-  #  default: op
-  #  children:
-  #    limitedclones.player: true
-  #    limitedclones.admin: true
-  limitedclones.player:
-    default: true
-  limitedclones.admin:
+  limitedclones.modify:
     default: op
   limitedclones.bypass:
     default: op
+  limitedclones.help:
+    default: op
 
 commands:
- setmaxclones:
-   permission: limitedclones.admin
- setclones:
-   permission: limitedclones.admin
- checkclonesother:
-   permission: limitedclones.admin
- checkclones:
-   permission: limitedclones.player
+ clones:
+   #サブコマンド
+   #set, heal, add, help
