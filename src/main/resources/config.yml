@@ -14,3 +14,9 @@ healAmountPerms:
   - 5
   - 7
   - 10
+
+#残機がなくなったときに実行
+#%player%はプレイヤー名に置換される
+commandsOnRunningOutOfClones:
+  - clear %player%
+  - examplecommand %player%

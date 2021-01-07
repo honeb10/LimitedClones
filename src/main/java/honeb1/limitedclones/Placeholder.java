@@ -36,17 +36,16 @@ public class Placeholder extends PlaceholderExpansion{
     @Override
     public String onPlaceholderRequest(Player player, String identifier) {
         if(identifier.equalsIgnoreCase("clones_remaining")){
-            int clones = plugin.getClones(player);
-            if(clones ==  -1) {//無限
+            if(!plugin.isClonesLimited(player)) {//無限
                 return "∞";
             }
             return Integer.toString(plugin.getClones(player));
         }
         if(identifier.equalsIgnoreCase("clones_max")){
-            int max = plugin.getMaxClones(player);
-            if(max == -1){//無限
+            if(!plugin.isClonesLimited(player)){//無限
                 return "∞";
             }
+            int max = plugin.getMaxClones(player);
             return Integer.toString(max);
         }
         return null;

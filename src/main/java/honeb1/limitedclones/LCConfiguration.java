@@ -11,6 +11,7 @@ public class LCConfiguration {
 
     ArrayList<Integer> maxClonesPermList;
     ArrayList<Integer> healAmountPermList;
+    ArrayList<String> commandsOnRunningOutOfClones;
 
     public LCConfiguration(JavaPlugin plugin){
         pl = plugin;
@@ -21,5 +22,6 @@ public class LCConfiguration {
         FileConfiguration fileConfiguration = pl.getConfig();
         maxClonesPermList = (ArrayList<Integer>)fileConfiguration.getList("maxClonesPerms");
         healAmountPermList = (ArrayList<Integer>)fileConfiguration.getList("healAmountPerms");
+        commandsOnRunningOutOfClones = (ArrayList<String>)fileConfiguration.getList("commandsOnRunningOutOfClones");
     }
 }

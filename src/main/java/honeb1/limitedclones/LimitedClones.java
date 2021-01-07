@@ -6,6 +6,7 @@ import com.sk89q.worldguard.LocalPlayer;
 import com.sk89q.worldguard.WorldGuard;
 import com.sk89q.worldguard.bukkit.WorldGuardPlugin;
 import com.sk89q.worldguard.protection.ApplicableRegionSet;
+import com.sk89q.worldguard.protection.association.RegionAssociable;
 import com.sk89q.worldguard.protection.flags.Flag;
 import com.sk89q.worldguard.protection.flags.StateFlag;
 import com.sk89q.worldguard.protection.flags.registry.FlagConflictException;
@@ -13,23 +14,32 @@ import com.sk89q.worldguard.protection.flags.registry.FlagRegistry;
 import com.sk89q.worldguard.protection.managers.RegionManager;
 import com.sk89q.worldguard.protection.regions.RegionContainer;
 import com.sk89q.worldguard.protection.regions.RegionQuery;
+import com.sun.org.apache.xalan.internal.xsltc.runtime.ErrorMessages_zh_CN;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.Server;
 import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.Configuration;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.ItemDespawnEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.permissions.Permission;
 import org.bukkit.permissions.PermissionDefault;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import scala.concurrent.impl.FutureConvertersImpl;
 import sun.jvm.hotspot.opto.Block;
 
 import java.awt.event.ActionListener;
@@ -40,7 +50,7 @@ import java.util.*;
 public final class LimitedClones extends JavaPlugin implements Listener {
     LCConfiguration configuration;
     FileConfiguration config;
-    Map<String,Integer> clonesCount = new HashMap<>();
+    FileConfiguration clonesRec;
     final String permMessage = "権限がありません。";
     final String invalidNumberMessage = "有効な数値を入力してください。";
     final String playerNotFoundMessage = "プレイヤーが見つかりません。";
@@ -58,11 +68,8 @@ public final class LimitedClones extends JavaPlugin implements Listener {
     @EventHandler
     public void onPlayerJoin( PlayerJoinEvent event ){
         Player p =  event.getPlayer();
-        if( !p.hasPermission( "limitedclones.player" ) ){
-            //return;
-        }
         String name = p.getName();
-        if(!clonesCount.containsKey(name)){
+        if(!clonesRec.contains(name)){
             setClones(p,getMaxClones(p));
         }
     }
@@ -70,13 +77,7 @@ public final class LimitedClones extends JavaPlugin implements Listener {
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event){
         Player p = event.getEntity();
-        if(p.hasPermission( "limitedclones.bypass" )){
-            return;
-        }
-        if(useWorldGuard &&
-           !getFlagState(wgflag_limit_clones,p)){
-            return;
-        }
+        if(!isClonesLimited(p)) return;;
         String name = p.getName();
         int clones = getClones(p);
 
@@ -86,6 +87,18 @@ public final class LimitedClones extends JavaPlugin implements Listener {
                 p.setBedSpawnLocation( null );
                 p.sendMessage(ChatColor.RED + "残機がなくなったため、初期スポーンに戻ります" );
                 setClones(p,getMaxClones(p));
+
+                //コマンド実行
+
+                for(String raw : configuration.commandsOnRunningOutOfClones){
+                    if(raw.contains("clear %player%")){
+                        //アイテム消去
+                        event.getDrops().clear();
+                        continue;
+                    }
+                    String replaced = raw.replace("%player%", p.getName());
+                    getServer().dispatchCommand(getServer().getConsoleSender(), replaced);
+                }
             }
             else{
                 setClones(p,clones-1);
@@ -114,11 +127,13 @@ public final class LimitedClones extends JavaPlugin implements Listener {
                return false;
            }
            try{
-               Player p = getServer().getPlayer( args[1] );
-               int valueToSet = Integer.valueOf(args[2]);
-               setClones(p,valueToSet);
-               sender.sendMessage( p.getName()+"の残機数を" + valueToSet +"体に設定しました。" );
-               p.sendMessage( ChatColor.AQUA + "あなたの残機数が" + valueToSet + "体に設定されました。" );
+               Collection<Player> players = handleAtA(args[1]);
+               for(Player p : players) {
+                   int valueToSet = Integer.valueOf(args[2]);
+                   setClones(p, valueToSet);
+                   sender.sendMessage(p.getName() + "の残機数を" + valueToSet + "体に設定しました。");
+                   p.sendMessage(ChatColor.AQUA + "あなたの残機数が" + valueToSet + "体に設定されました。");
+               }
                return true;
            }catch (NumberFormatException e){
                sender.sendMessage(invalidNumberMessage);
@@ -139,10 +154,12 @@ public final class LimitedClones extends JavaPlugin implements Listener {
                return false;
            }
            try{
-               Player p = getServer().getPlayer( args[1] );
-               int amount = getHealAmount(p);
-               addClones(p,amount);
-               sender.sendMessage( p.getName()+"に残機を付与しました。" );
+               Collection<Player> players = handleAtA(args[1]);
+               for(Player p : players) {
+                   int amount = getHealAmount(p);
+                   addClones(p, amount);
+                   sender.sendMessage(p.getName() + "に残機を付与しました。");
+               }
                return true;
            }catch (NullPointerException e) {
                sender.sendMessage(playerNotFoundMessage);
@@ -160,10 +177,12 @@ public final class LimitedClones extends JavaPlugin implements Listener {
                 return false;
             }
             try{
-                Player p = getServer().getPlayer( args[1] );
-                int amount = Integer.valueOf(args[2]);
-                addClones(p,amount);
-                sender.sendMessage( p.getName()+"に残機を付与しました。" );
+                Collection<Player> players = handleAtA(args[1]);
+                for(Player p : players) {
+                    int amount = Integer.valueOf(args[2]);
+                    addClones(p, amount);
+                    sender.sendMessage(p.getName() + "に残機を付与しました。");
+                }
                 return true;
             }catch (NullPointerException e){
                 sender.sendMessage(playerNotFoundMessage);
@@ -178,6 +197,14 @@ public final class LimitedClones extends JavaPlugin implements Listener {
        return false;
     }
 
+    public Collection<Player> handleAtA(String arg){//プレイヤー名の代わりに@aで全員指定
+        if(arg.equalsIgnoreCase("@a")){
+            return (Collection<Player>) getServer().getOnlinePlayers();
+        }
+        Collection<Player> collection = new ArrayList<>();
+        collection.add(getServer().getPlayer(arg));
+        return collection;
+    }
 
     final String[] subCommands = {
             "set", "heal", "add", "help"
@@ -221,6 +248,14 @@ public final class LimitedClones extends JavaPlugin implements Listener {
         Bukkit.getServer().getPluginManager().registerEvents( this, this );
         config = this.getConfig();
         configuration = new LCConfiguration(this);
+        clonesRec = new YamlConfiguration();
+        try{
+            File recFile = new File("plugins/LimitedClones/clonesRecord.yml");
+            if(!recFile.exists()) recFile.createNewFile();
+            clonesRec.load(recFile);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
         if(Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null){
             new Placeholder(this).register();
         }
@@ -230,6 +265,11 @@ public final class LimitedClones extends JavaPlugin implements Listener {
     public void onDisable() {
         // Plugin shutdown logic
         this.saveConfig();
+        try {
+            clonesRec.save("plugins/LimitedClones/clonesRecord.yml");
+        }catch (Exception e){
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -253,35 +293,30 @@ public final class LimitedClones extends JavaPlugin implements Listener {
 
     public void tellClones(CommandSender t, Player p ){
 
-        if( p.hasPermission("limitedclones.bypass") ){
+        if(!isClonesLimited(p)){
             t.sendMessage(ChatColor.YELLOW + p.getDisplayName() + "の残機数は無制限です。");
         }else {
             t.sendMessage(ChatColor.YELLOW + p.getDisplayName() + "の現在の残機数：" + getClones(p) + "体");
         }
     }
     public void tellClones( Player p ){
-        if( p.hasPermission( "limitedclones.bypass" ) )return;
-        if(!getFlagState(wgflag_limit_clones,p)) return;
+        if(!isClonesLimited(p)) return;
         p.sendMessage(ChatColor.YELLOW + "現在の残機数：" + getClones(p) + "体");
     }
 
     public int getClones( Player p ){
-        if( p.hasPermission( "limitedclones.bypass" ) ||
-            !getFlagState(wgflag_limit_clones, p)){
-            return -1;
-        }
-        Integer clones = clonesCount.get(p.getName());
-        return clones;
+        return clonesRec.getInt(p.getName());
     }
     public void setClones( Player p, int count ){
-        clonesCount.put(p.getName(),count);
+        clonesRec.set(p.getName(),count);
     }
 
     public void addClones( Player p, int amount ){
         int res = Math.min(getClones(p) + amount, getMaxClones(p));
         int added = (res - getClones(p));
         setClones(p,res);
-        p.sendMessage( ChatColor.AQUA + "あなたに残機が" + added + "体付与されました。" );
+        if(added > 0)
+            p.sendMessage( ChatColor.AQUA + "あなたに残機が" + added + "体付与されました。" );
     }
 
     public boolean getFlagState( StateFlag flag, Player p ){
@@ -290,14 +325,11 @@ public final class LimitedClones extends JavaPlugin implements Listener {
         RegionContainer container = WorldGuard.getInstance().getPlatform().getRegionContainer();
         RegionManager regions = container.get(BukkitAdapter.adapt(loc.getWorld()));
         ApplicableRegionSet set = container.createQuery().getApplicableRegions(BukkitAdapter.adapt(loc));
-        return set.testState(player,wgflag_limit_clones);
+        return set.testState(player,flag);
     }
 
     public int getMaxClones(Player p){
         int res = -1;
-        if(!getFlagState(wgflag_limit_clones, p)){
-            return res;
-        }
         for(int i : configuration.maxClonesPermList){
             Permission perm = new Permission(("limitedclones.maxclones." + i), PermissionDefault.FALSE);
             if(!p.hasPermission(perm)) continue;
@@ -315,5 +347,10 @@ public final class LimitedClones extends JavaPlugin implements Listener {
             if(i > res ) res = i;
         }
         return res;
+    }
+
+    public boolean isClonesLimited(Player p){
+        return (!useWorldGuard || getFlagState(wgflag_limit_clones, p)) &&
+               !p.hasPermission("limitedclones.bypass");
     }
 }
